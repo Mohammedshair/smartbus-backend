@@ -7,7 +7,6 @@
 
     <script src="https://unpkg.com/html5-qrcode"></script>
 
-
     <style>
         body{ margin:0;background:#081021;color:white;font-family:Inter,Arial; }
         .container{max-width:1200px;margin:40px auto;padding:20px;display:flex;gap:20px}
@@ -22,6 +21,27 @@
         .deny{background:#ffd4d4;color:#470202}
         .noentry{background:#fff2c7;color:#573d00}
         .history{ max-height:250px;overflow:auto;border:1px solid #ffffff22;padding:10px;border-radius:8px; color:#cbd5e1; }
+
+        /* 📱 MOBILE MODE — ONLY THESE LINES ADDED */
+        @media (max-width: 768px) {
+            .container{
+                flex-direction:column;
+                margin:10px;
+                padding:10px;
+            }
+            #qr-reader{
+                height:300px;
+            }
+            button{
+                width:100%;
+                margin-top:10px;
+            }
+            #manualToken{
+                width:100%;
+                font-size:16px;
+                padding:12px;
+            }
+        }
     </style>
 </head>
 
