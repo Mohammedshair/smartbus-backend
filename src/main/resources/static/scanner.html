@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>SmartBus — Scanner</title>
+
+    <script src="https://unpkg.com/html5-qrcode"></script>
+
+
+    <style>
+        body{ margin:0;background:#081021;color:white;font-family:Inter,Arial; }
+        .container{max-width:1200px;margin:40px auto;padding:20px;display:flex;gap:20px}
+        .left,.right{ background:#0e1a33;padding:20px;border-radius:12px; flex:1;box-shadow:0 0 20px #0008; }
+        h2{margin-top:0}
+        #qr-reader{ width:100%;height:400px;background:black;border-radius:12px; display:flex;align-items:center;justify-content:center;color:white; }
+        button{ padding:10px 18px;border-radius:8px;border:none;cursor:pointer;font-weight:bold;font-size:14px; }
+        .btn-primary{ background:linear-gradient(90deg,#ff2d95,#06b6d4);color:white; }
+        .btn-ghost{ background:transparent;border:1px solid #ffffff33;color:#ccc; }
+        #statusBox{ margin-top:15px;padding:15px;border-radius:10px; background:#fff3;border:1px solid #ffffff22;font-size:18px;font-weight:bold;text-align:center; }
+        .allow{background:#d4ffd4;color:#024702}
+        .deny{background:#ffd4d4;color:#470202}
+        .noentry{background:#fff2c7;color:#573d00}
+        .history{ max-height:250px;overflow:auto;border:1px solid #ffffff22;padding:10px;border-radius:8px; color:#cbd5e1; }
+    </style>
+</head>
+
+<body>
+<div class="container">
+
+    <!-- LEFT -->
+    <div class="left">
+        <h2>📷 SmartBus — QR Scanner</h2>
+
+        <select id="cameraSelect" style="padding:8px;width:60%;border-radius:8px;"></select>
+        <button id="startBtn" class="btn-primary">Start Camera</button>
+        <button id="stopBtn" class="btn-ghost">Stop</button>
+
+        <div id="qr-reader">Camera not started</div>
+
+        <div id="statusBox" class="noentry">Ready — scan a QR code</div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="right">
+        <h2>Manual Verify</h2>
+        <input id="manualToken" placeholder="Paste token here"
+               style="width:100%;padding:10px;border-radius:8px;background:#fff;color:black;">
+        <button id="manualVerifyBtn" class="btn-primary" style="margin-top:10px;">Verify</button>
+
+        <h3>Student Info</h3>
+        <div id="infoBox" style="line-height:1.6;font-size:16px;">
+            USN: - <br>
+            Name: - <br>
+            Reason: -
+        </div>
+
+        <h3>Last Scans</h3>
+        <div id="history" class="history"></div>
+
+        <button onclick="location.href='/'" class="btn-ghost" style="margin-top:20px;">🏠 Home</button>
+    </div>
+
+</div>
+
+<script>
+    const BACKEND = (location.port === "5500") ? "http://localhost:8080" : "";
+
+    const cameraSelect = document.getElementById("cameraSelect");
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const statusBox = document.getElementById("statusBox");
+    const historyEl = document.getElementById("history");
+    const infoBox = document.getElementById("infoBox");
+    const manualToken = document.getElementById("manualToken");
+    const manualVerifyBtn = document.getElementById("manualVerifyBtn");
+
+    let qrScanner = null;
+    const MAX_HISTORY = 25;
+    let scanHistory = [];
+
+    function addHistory(text){
+        const ts = new Date().toLocaleTimeString();
+        scanHistory.unshift(`${ts} — ${text}`);
+        if (scanHistory.length > MAX_HISTORY) scanHistory.length = MAX_HISTORY;
+        historyEl.innerHTML = scanHistory
+            .map(e => `<div style="padding:6px 0;border-bottom:1px dashed #ffffff22">${e}</div>`)
+            .join("");
+    }
+
+    async function loadCameras(){
+        try{
+            const devices = await Html5Qrcode.getCameras();
+            cameraSelect.innerHTML = "";
+            if (!devices.length){
+                cameraSelect.appendChild(new Option("No camera available", ""));
+                return;
+            }
+            devices.forEach(d => cameraSelect.appendChild(new Option(d.label, d.id)));
+        }catch(err){
+            cameraSelect.appendChild(new Option("Camera blocked / library missing", ""));
+            console.warn(err);
+        }
+    }
+    loadCameras();
+
+    startBtn.onclick = async () => {
+        const camId = cameraSelect.value;
+        if (!camId) return alert("Please select a camera.");
+
+        qrScanner = new Html5Qrcode("qr-reader");
+        statusBox.textContent = "Starting camera...";
+
+        try{
+            await qrScanner.start(camId, { fps:10, qrbox:250 }, verifyToken);
+            statusBox.textContent = "Scanning...";
+            statusBox.className = "noentry";
+        }catch(e){
+            alert("Failed to start camera. Check permissions.");
+        }
+    };
+
+    stopBtn.onclick = async () => {
+        if (qrScanner){
+            await qrScanner.stop().catch(()=>{});
+            qrScanner.clear().catch(()=>{});
+            qrScanner = null;
+            statusBox.textContent = "Camera stopped";
+        }
+    };
+
+    async function verifyToken(token){
+        try {
+            const res = await fetch(`${BACKEND}/api/verify`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ token })
+            });
+
+            const json = await res.json().catch(()=>({ result:"NO_ENTRY", reason:"invalid server reply"}));
+
+            if (json.result === "ALLOW"){
+                statusBox.textContent = "ALLOWED — " + (json.name || json.usn);
+                statusBox.className = "allow";
+                addHistory("ALLOW");
+            }
+            else if (json.result === "DENY"){
+                statusBox.textContent = "DENIED — " + json.reason;
+                statusBox.className = "deny";
+                addHistory("DENY");
+            }
+            else {
+                statusBox.textContent = "NO ENTRY — " + json.reason;
+                statusBox.className = "noentry";
+                addHistory("NO ENTRY");
+            }
+
+            infoBox.innerHTML =
+                `USN: ${json.usn || "-"}<br>
+                 Name: ${json.name || "-"}<br>
+                 Reason: ${json.reason || "-"}`;
+
+        }catch(e){
+            statusBox.textContent = "Network error";
+            statusBox.className = "noentry";
+            addHistory("VERIFY ERROR");
+        }
+    }
+
+    manualVerifyBtn.onclick = () => {
+        const t = manualToken.value.trim();
+        if (!t) return alert("Paste a token first.");
+        verifyToken(t);
+    };
+</script>
+
+</body>
+</html>
